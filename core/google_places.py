@@ -1,34 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 
 COMMERCIAL_TYPES = [
-    "store",
-    "restaurant",
-    "cafe",
-    "bakery",
-    "bar",
-    "supermarket",
-    "convenience_store",
-    "clothing_store",
-    "shoe_store",
-    "electronics_store",
-    "hardware_store",
-    "home_goods_store",
-    "furniture_store",
-    "pharmacy",
-    "beauty_salon",
-    "hair_care",
-    "spa",
-    "gym",
-    "car_repair",
-    "car_dealer",
-    "gas_station",
-    "lodging",
-    "bank",
-    "real_estate_agency",
-    "travel_agency",
+    "store", "restaurant", "cafe", "bakery", "bar", "supermarket",
+    "convenience_store", "clothing_store", "shoe_store", "electronics_store",
+    "hardware_store", "home_goods_store", "furniture_store", "pharmacy",
+    "beauty_salon", "hair_care", "spa", "gym", "car_repair", "car_dealer",
+    "gas_station", "lodging", "bank", "real_estate_agency", "travel_agency",
 ]
 
 
@@ -36,21 +17,16 @@ class GooglePlacesClient:
     AGGREGATE_ENDPOINT = "https://areainsights.googleapis.com/v1:computeInsights"
     DETAILS_ENDPOINT = "https://places.googleapis.com/v1/places/{place_id}"
 
-    DETAILS_FIELD_MASK = ",".join([
-        "id",
-        "displayName",
-        "formattedAddress",
-        "location",
-        "primaryType",
-        "types",
-        "businessStatus",
-        "websiteUri",
-        "googleMapsUri",
-    ])
+    BASIC_FIELDS = [
+        "id", "displayName", "formattedAddress", "location",
+        "primaryType", "types", "businessStatus", "googleMapsUri",
+    ]
+    COMPLETE_FIELDS = BASIC_FIELDS + ["websiteUri"]
 
-    def __init__(self, api_key: str, timeout: int = 20):
+    def __init__(self, api_key: str, timeout: int = 20, workers: int = 12):
         self.api_key = api_key
         self.timeout = timeout
+        self.workers = workers
 
     def count_in_polygon(self, polygon: list[tuple[float, float]]) -> int:
         data = self._aggregate_request(polygon, ["INSIGHT_COUNT"])
@@ -70,14 +46,8 @@ class GooglePlacesClient:
     def place_ids_covering_polygon(
         self,
         polygon: list[tuple[float, float]],
-        max_depth: int = 5,
+        max_depth: int = 6,
     ) -> tuple[int, list[str], int]:
-        """
-        Obtiene Place IDs aunque el polígono original tenga >100 resultados.
-        Primero cuenta. Si supera 100, divide el bounding box en 4 celdas y
-        repite recursivamente. Devuelve:
-          total_estimado_original, ids_unicos, numero_de_celdas_consultadas
-        """
         original_count = self.count_in_polygon(polygon)
         if original_count <= 100:
             return original_count, self.place_ids_in_polygon(polygon), 1
@@ -115,6 +85,42 @@ class GooglePlacesClient:
         walk(root, 0)
         return original_count, sorted(ids), cells_used
 
+    def details_many(self, place_ids: list[str], complete: bool = False) -> tuple[list[dict], list[str]]:
+        results: list[dict] = []
+        errors: list[str] = []
+
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            future_map = {
+                pool.submit(self.place_details, place_id, complete): place_id
+                for place_id in place_ids
+            }
+            for future in as_completed(future_map):
+                place_id = future_map[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    errors.append(f"{place_id}: {exc}")
+
+        return results, errors
+
+    def place_details(self, place_id: str, complete: bool = False) -> dict:
+        field_mask = ",".join(self.COMPLETE_FIELDS if complete else self.BASIC_FIELDS)
+        response = requests.get(
+            self.DETAILS_ENDPOINT.format(place_id=place_id),
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": self.api_key,
+                "X-Goog-FieldMask": field_mask,
+            },
+            params={"languageCode": "es", "regionCode": "CO"},
+            timeout=self.timeout,
+        )
+        if not response.ok:
+            raise RuntimeError(
+                f"Place Details HTTP {response.status_code}: {response.text[:500]}"
+            )
+        return response.json()
+
     def _aggregate_request(
         self,
         polygon: list[tuple[float, float]],
@@ -138,6 +144,7 @@ class GooglePlacesClient:
                 "operatingStatus": ["OPERATING_STATUS_OPERATIONAL"],
             },
         }
+
         response = requests.post(
             self.AGGREGATE_ENDPOINT,
             json=payload,
@@ -150,23 +157,6 @@ class GooglePlacesClient:
         if not response.ok:
             raise RuntimeError(
                 f"Places Aggregate HTTP {response.status_code}: {response.text[:700]}"
-            )
-        return response.json()
-
-    def place_details(self, place_id: str) -> dict:
-        response = requests.get(
-            self.DETAILS_ENDPOINT.format(place_id=place_id),
-            headers={
-                "Content-Type": "application/json",
-                "X-Goog-Api-Key": self.api_key,
-                "X-Goog-FieldMask": self.DETAILS_FIELD_MASK,
-            },
-            params={"languageCode": "es", "regionCode": "CO"},
-            timeout=self.timeout,
-        )
-        if not response.ok:
-            raise RuntimeError(
-                f"Place Details HTTP {response.status_code}: {response.text[:500]}"
             )
         return response.json()
 
