@@ -10,7 +10,7 @@
   <header>
     <div>
       <h1>Piloto de fachadas comerciales</h1>
-      <p>Dibuja un perímetro, consulta negocios y prepara el barrido de visión artificial.</p>
+      <p>Selecciona un perímetro, consulta comercios en Google Maps y prepara la fase de visión artificial.</p>
     </div>
   </header>
 
@@ -23,16 +23,12 @@
         <button id="undoPoint" class="secondary">Deshacer punto</button>
         <button id="clearMap" class="secondary">Limpiar</button>
       </div>
-      <div class="settings">
-        <label>Separación de barrido (m)
-          <input id="gridSpacing" type="number" value="150" min="50" max="500" />
-        </label>
-        <label>Radio Places (m)
-          <input id="searchRadius" type="number" value="120" min="50" max="500" />
-        </label>
-      </div>
       <button id="analyze" class="primary" disabled>2. Analizar zona</button>
       <p id="status" class="status">Esperando polígono…</p>
+      <p class="note">
+        Para mantener el proyecto dentro de las políticas de Google, la aplicación muestra nombre y dirección en vivo,
+        pero el archivo persistente guarda solamente los Place IDs.
+      </p>
     </section>
 
     <section class="map-wrap">
@@ -42,11 +38,12 @@
     <section class="panel results">
       <div class="results-head">
         <div>
-          <h2>3. Negocios candidatos</h2>
+          <h2>3. Comercios encontrados</h2>
           <p id="summary">Aún no hay resultados.</p>
         </div>
-        <a id="downloadCsv" class="button-link hidden" href="#">Descargar CSV</a>
+        <a id="downloadCsv" class="button-link hidden" href="#">Descargar Place IDs</a>
       </div>
+      <p id="warning" class="warning hidden"></p>
       <div class="table-wrap">
         <table>
           <thead>
