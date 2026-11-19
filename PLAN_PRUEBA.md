@@ -1,54 +1,49 @@
 # Plan de prueba piloto
 
-## Objetivo del piloto
+## Objetivo
 
-Seleccionar un perímetro pequeño de una ciudad, descubrir negocios dentro de él y construir una tabla georreferenciada que luego pueda enriquecerse con visión artificial.
+Seleccionar un perímetro pequeño de una ciudad y obtener una lista de comercios del área para preparar un recorrido visual posterior.
 
-## Fase 1 — Perímetro + Google Places
+## Piloto 1 — Google Maps + Places Aggregate
 
-1. Abrir la aplicación.
-2. Dibujar un polígono de 4–8 cuadras.
-3. Generar puntos de barrido cada 150 m.
-4. Consultar Google Places con radio de 120 m.
-5. Deduplicar por Place ID.
-6. Conservar solo establecimientos dentro del polígono.
-7. Exportar CSV.
+1. Dibujar un polígono de 4–8 cuadras.
+2. Consultar Places Aggregate API usando el polígono como `customArea`.
+3. Recuperar hasta 100 Place IDs.
+4. Mostrar detalles en vivo sobre Google Maps.
+5. Guardar únicamente los Place IDs.
 
-### Resultado esperado
+### Criterio de éxito
 
-- nombre
-- dirección
-- coordenadas
-- tipo de establecimiento
-- estado
-- website
-- enlace Google Maps
+- el polígono coincide con el sector deseado;
+- la aplicación devuelve comercios útiles;
+- los resultados pueden visualizarse en el mapa;
+- los Place IDs quedan disponibles para validación posterior.
 
-## Fase 2 — Validación visual
+## Piloto 2 — recorrido visual
 
-Sobre imágenes que tengamos derecho a analizar:
+Capturar imágenes con una fuente autorizada para visión artificial.
 
-- detectar fachada comercial;
-- detectar aviso comercial;
-- detectar vitrina;
-- ejecutar OCR del aviso;
-- comparar nombre OCR con el nombre de Google Places.
+Por imagen:
 
-## Criterio inicial de éxito
+- coordenadas propias;
+- fachada comercial sí/no;
+- aviso comercial sí/no;
+- vitrina sí/no;
+- texto OCR;
+- confianza.
 
-En un piloto pequeño:
+## Piloto 3 — consolidación
 
-- recuperar una muestra útil de negocios del perímetro;
-- obtener dirección y nombre para la mayoría;
-- identificar candidatos sin sitio web;
-- dejar lista la tabla para enriquecerla con visión.
+Cruzar:
 
-## Fase 3 — Oportunidad comercial
+```text
+detección visual propia
++
+OCR propio
++
+Place ID Google
++
+validación de website en vivo
+```
 
-Crear una columna `oportunidad_web` combinando, por ejemplo:
-
-- no tiene website en Places;
-- fachada/aviso comercial confirmado;
-- negocio operativo;
-- nombre OCR consistente;
-- categoría comercial prioritaria.
+Resultado: identificar negocios activos con fachada comercial y baja presencia digital.
