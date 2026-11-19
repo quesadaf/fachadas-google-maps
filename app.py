@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,7 +11,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from core.geo import generate_grid_points, point_in_polygon
 from core.google_places import GooglePlacesClient
 
 load_dotenv()
@@ -21,7 +20,7 @@ STATIC_DIR = BASE_DIR / "static"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Fachadas Google Maps - Piloto", version="0.1.0")
+app = FastAPI(title="Fachadas Google Maps - Piloto", version="0.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -32,9 +31,6 @@ class Point(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     polygon: list[Point] = Field(min_length=3)
-    grid_spacing_m: int = Field(default=150, ge=50, le=500)
-    search_radius_m: int = Field(default=120, ge=50, le=500)
-    max_grid_points: int = Field(default=120, ge=1, le=500)
 
 
 @app.get("/")
@@ -55,93 +51,82 @@ def config() -> dict:
 def analyze(req: AnalyzeRequest) -> dict:
     api_key = os.getenv("GOOGLE_PLACES_API_KEY", "")
     if not api_key:
-        raise HTTPException(status_code=500, detail="Falta GOOGLE_PLACES_API_KEY en el archivo .env")
+        raise HTTPException(
+            status_code=500,
+            detail="Falta GOOGLE_PLACES_API_KEY en el archivo .env",
+        )
 
     polygon = [(p.lat, p.lng) for p in req.polygon]
-    grid_points = generate_grid_points(
-        polygon,
-        spacing_m=req.grid_spacing_m,
-        max_points=req.max_grid_points,
-    )
-
     client = GooglePlacesClient(api_key=api_key)
-    by_id: dict[str, dict] = {}
+
+    try:
+        count, place_ids = client.places_in_polygon(polygon)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if count > 100 and not place_ids:
+        return {
+            "count": count,
+            "place_ids": [],
+            "places": [],
+            "id_file": None,
+            "warning": (
+                "El polígono contiene más de 100 comercios. "
+                "Google Places Aggregate no devuelve Place IDs en ese caso. "
+                "Reduce el perímetro y vuelve a intentar."
+            ),
+        }
+
+    places: list[dict] = []
     errors: list[str] = []
-
-    for lat, lng in grid_points:
+    for place_id in place_ids:
         try:
-            for place in client.search_nearby(lat, lng, radius_m=req.search_radius_m):
-                loc = place.get("location") or {}
-                plat = loc.get("latitude")
-                plng = loc.get("longitude")
-                if plat is None or plng is None:
-                    continue
-                if not point_in_polygon((float(plat), float(plng)), polygon):
-                    continue
-
-                place_id = place.get("id")
-                if not place_id:
-                    continue
-
-                display_name = (place.get("displayName") or {}).get("text", "")
-                primary_type = place.get("primaryType", "")
-                types = place.get("types", [])
-
-                excluded = {
-                    "country", "administrative_area_level_1", "administrative_area_level_2",
-                    "locality", "sublocality", "neighborhood", "postal_code", "route",
-                    "street_address", "intersection", "political", "school", "university",
-                    "hospital", "police", "fire_station", "courthouse", "city_hall",
-                    "place_of_worship", "cemetery", "park",
-                }
-                if primary_type in excluded:
-                    continue
-
-                by_id[place_id] = {
-                    "place_id": place_id,
-                    "nombre": display_name,
-                    "direccion": place.get("formattedAddress", ""),
-                    "latitud": plat,
-                    "longitud": plng,
-                    "tipo_principal": primary_type,
-                    "tipos": ", ".join(types),
-                    "estado": place.get("businessStatus", ""),
-                    "website": place.get("websiteUri", ""),
-                    "google_maps_url": place.get("googleMapsUri", ""),
-                    "fachada_comercial": "PENDIENTE_VISION",
-                    "aviso_comercial": "PENDIENTE_VISION",
-                    "vitrina": "PENDIENTE_VISION",
-                    "nombre_ocr": "",
-                    "confianza_vision": "",
-                }
+            place = client.place_details(place_id)
+            places.append({
+                "place_id": place_id,
+                "nombre": (place.get("displayName") or {}).get("text", ""),
+                "direccion": place.get("formattedAddress", ""),
+                "latitud": (place.get("location") or {}).get("latitude"),
+                "longitud": (place.get("location") or {}).get("longitude"),
+                "tipo_principal": place.get("primaryType", ""),
+                "tipos": place.get("types", []),
+                "estado": place.get("businessStatus", ""),
+                "website": place.get("websiteUri", ""),
+                "google_maps_url": place.get("googleMapsUri", ""),
+                "fachada_comercial": "PENDIENTE_VISION",
+                "aviso_comercial": "PENDIENTE_VISION",
+                "vitrina": "PENDIENTE_VISION",
+            })
         except Exception as exc:
-            errors.append(f"Punto {lat:.6f},{lng:.6f}: {exc}")
+            errors.append(f"{place_id}: {exc}")
 
-    places = sorted(by_id.values(), key=lambda p: (p["direccion"], p["nombre"]))
-    csv_name = _save_csv(places)
+    id_file = _save_place_ids(place_ids)
 
     return {
-        "grid_points": [{"lat": lat, "lng": lng} for lat, lng in grid_points],
+        "count": count,
+        "place_ids": place_ids,
         "places": places,
-        "count": len(places),
-        "csv_file": csv_name,
+        "id_file": id_file,
+        "warning": "",
         "errors": errors[:20],
+        "storage_notice": (
+            "La interfaz muestra datos de Places en vivo. "
+            "El archivo persistente guarda únicamente Place IDs, "
+            "no nombres ni direcciones de Google."
+        ),
     }
 
 
-def _save_csv(rows: list[dict]) -> str:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"negocios_{stamp}.csv"
+def _save_place_ids(place_ids: list[str]) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"place_ids_{stamp}.csv"
     path = OUTPUT_DIR / filename
-    fieldnames = [
-        "place_id", "nombre", "direccion", "latitud", "longitud",
-        "tipo_principal", "tipos", "estado", "website", "google_maps_url",
-        "fachada_comercial", "aviso_comercial", "vitrina", "nombre_ocr", "confianza_vision",
-    ]
-    with path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["place_id", "captured_at_utc"])
         writer.writeheader()
-        writer.writerows(rows)
+        now = datetime.now(timezone.utc).isoformat()
+        for place_id in place_ids:
+            writer.writerow({"place_id": place_id, "captured_at_utc": now})
     return filename
 
 
@@ -149,6 +134,6 @@ def _save_csv(rows: list[dict]) -> str:
 def download(filename: str) -> FileResponse:
     safe = Path(filename).name
     path = OUTPUT_DIR / safe
-    if not path.exists() or path.suffix.lower() != ".csv":
+    if not path.exists() or not safe.startswith("place_ids_") or path.suffix.lower() != ".csv":
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return FileResponse(path, media_type="text/csv", filename=safe)
