@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from core.geo import point_in_polygon
 from core.google_places import GooglePlacesClient
 
 load_dotenv()
@@ -20,7 +21,7 @@ STATIC_DIR = BASE_DIR / "static"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Fachadas Google Maps - Piloto", version="0.2.0")
+app = FastAPI(title="Fachadas Google Maps - Piloto", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -60,34 +61,37 @@ def analyze(req: AnalyzeRequest) -> dict:
     client = GooglePlacesClient(api_key=api_key)
 
     try:
-        count, place_ids = client.places_in_polygon(polygon)
+        original_count, place_ids, cells_used = client.place_ids_covering_polygon(polygon)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    if count > 100 and not place_ids:
-        return {
-            "count": count,
-            "place_ids": [],
-            "places": [],
-            "id_file": None,
-            "warning": (
-                "El polígono contiene más de 100 comercios. "
-                "Google Places Aggregate no devuelve Place IDs en ese caso. "
-                "Reduce el perímetro y vuelve a intentar."
-            ),
-        }
-
     places: list[dict] = []
+    kept_ids: list[str] = []
     errors: list[str] = []
+
     for place_id in place_ids:
         try:
             place = client.place_details(place_id)
+            loc = place.get("location") or {}
+            lat = loc.get("latitude")
+            lng = loc.get("longitude")
+
+            if lat is None or lng is None:
+                continue
+
+            # Las subconsultas cubren el bounding box. Aquí conservamos
+            # únicamente los lugares realmente ubicados dentro del polígono
+            # seleccionado por el usuario.
+            if not point_in_polygon((float(lat), float(lng)), polygon):
+                continue
+
+            kept_ids.append(place_id)
             places.append({
                 "place_id": place_id,
                 "nombre": (place.get("displayName") or {}).get("text", ""),
                 "direccion": place.get("formattedAddress", ""),
-                "latitud": (place.get("location") or {}).get("latitude"),
-                "longitud": (place.get("location") or {}).get("longitude"),
+                "latitud": lat,
+                "longitud": lng,
                 "tipo_principal": place.get("primaryType", ""),
                 "tipos": place.get("types", []),
                 "estado": place.get("businessStatus", ""),
@@ -100,19 +104,27 @@ def analyze(req: AnalyzeRequest) -> dict:
         except Exception as exc:
             errors.append(f"{place_id}: {exc}")
 
-    id_file = _save_place_ids(place_ids)
+    id_file = _save_place_ids(kept_ids)
+
+    warning = ""
+    if original_count > 100:
+        warning = (
+            f"El área contenía {original_count} comercios. "
+            f"Se subdividió automáticamente en {cells_used} consultas de área "
+            "y se eliminaron duplicados."
+        )
 
     return {
-        "count": count,
-        "place_ids": place_ids,
+        "count": len(places),
+        "aggregate_count": original_count,
+        "place_ids": kept_ids,
         "places": places,
         "id_file": id_file,
-        "warning": "",
+        "warning": warning,
         "errors": errors[:20],
         "storage_notice": (
             "La interfaz muestra datos de Places en vivo. "
-            "El archivo persistente guarda únicamente Place IDs, "
-            "no nombres ni direcciones de Google."
+            "El archivo persistente guarda únicamente Place IDs."
         ),
     }
 
