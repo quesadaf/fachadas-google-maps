@@ -71,31 +71,15 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.settings {
-  display: grid;
-  gap: 10px;
-  margin: 14px 0;
-}
-
-.settings label {
-  display: grid;
-  gap: 5px;
-  font-size: .9rem;
-}
-
-input {
-  width: 100%;
-  padding: 9px;
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-}
-
-.status {
+.status, .note, .warning {
   font-size: .9rem;
   padding: 10px;
-  background: #eef2ff;
   border-radius: 8px;
 }
+
+.status { background: #eef2ff; }
+.note { background: #f8fafc; color: #475569; }
+.warning { background: #fff7ed; color: #9a3412; }
 
 .results { grid-column: 1 / -1; }
 
