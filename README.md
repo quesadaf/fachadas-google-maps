@@ -1,54 +1,55 @@
 # Fachadas Google Maps — piloto comercial
 
-MVP para seleccionar un **perímetro sobre Google Maps**, generar puntos de barrido, consultar negocios mediante **Google Places API (New)** y exportar una tabla preparada para una segunda etapa de visión artificial (fachada, aviso comercial, vitrina y OCR).
+MVP para seleccionar un **perímetro sobre Google Maps**, identificar comercios dentro de ese polígono y preparar una segunda etapa de visión artificial para detectar fachada, aviso comercial, vitrina y texto del negocio.
 
 ## Qué hace hoy
 
-1. Abre un mapa de Google en el navegador.
+1. Abre Google Maps en el navegador.
 2. Permite marcar un polígono haciendo clic en sus vértices.
-3. Genera una cuadrícula de puntos dentro del perímetro.
-4. Consulta Google Places alrededor de esos puntos.
-5. Elimina duplicados por `place_id` y descarta resultados fuera del polígono.
-6. Muestra nombre, dirección, tipo, web y enlace a Google Maps.
-7. Guarda y permite descargar un CSV.
+3. Envía ese polígono a **Places Aggregate API**.
+4. Obtiene los Place IDs de comercios operativos dentro del área.
+5. Consulta detalles en vivo para mostrarlos sobre Google Maps:
+   - nombre
+   - dirección
+   - tipo
+   - sitio web
+   - enlace a Google Maps
+6. Guarda de forma persistente solamente los **Place IDs**.
 
-Las columnas de visión (`fachada_comercial`, `aviso_comercial`, `vitrina`, `nombre_ocr`) quedan inicialmente como pendientes.
+## Por qué se separa la persistencia
 
-## Arquitectura del piloto
+Las políticas de Google Maps Platform permiten almacenar Place IDs, pero restringen guardar/exportar contenido de Google Maps como nombres y direcciones de negocios. También restringen usar contenido de Street View para entrenar, probar, validar o ajustar modelos de IA.
+
+Por eso la arquitectura final separa:
 
 ```text
-Google Maps (selección del perímetro)
+GOOGLE MAPS / PLACES
+selección geográfica + consulta/validación en vivo
               ↓
-      polígono lat/lng
+        Place IDs persistentes
               ↓
-     cuadrícula de barrido
+FUENTE DE IMÁGENES AUTORIZADA
               ↓
-     Google Places API New
+visión artificial + OCR
               ↓
- candidatos comerciales + dirección + web
-              ↓
-             CSV
-              ↓
-   [Fase 2: fuente de imágenes permitida]
-              ↓
-      YOLO/segmentación + OCR
+TABLA PROPIA PERSISTENTE
+nombre OCR + coordenadas propias + dirección de fuente abierta
 ```
-
-> Importante: Google Maps/Street View tiene restricciones de uso sobre contenido para entrenamiento, prueba o validación de modelos de IA. Por eso el MVP usa Google Maps/Places para **selección geográfica y datos de lugares**, y la fase visual debe conectarse a imágenes propias o a una fuente cuya licencia permita análisis automatizado.
 
 ## Requisitos de Google Cloud
 
-Crea un proyecto en Google Cloud con facturación habilitada y activa:
+Activa:
 
 - Maps JavaScript API
 - Places API (New)
+- Places Aggregate API
 
-Usa **dos API keys** diferentes:
+Usa dos API keys:
 
-- `GOOGLE_MAPS_BROWSER_API_KEY`: restringida por HTTP referrer y habilitada solo para Maps JavaScript API.
-- `GOOGLE_PLACES_API_KEY`: clave del backend, restringida a Places API (New) y, cuando despliegues, por IP.
+- `GOOGLE_MAPS_BROWSER_API_KEY`: navegador, restringida por HTTP referrer.
+- `GOOGLE_PLACES_API_KEY`: backend, restringida a Places API (New) y Places Aggregate API.
 
-Copia `.env.example` como `.env`:
+Copia `.env.example` a `.env`:
 
 ```env
 GOOGLE_MAPS_BROWSER_API_KEY=tu_clave_navegador
@@ -65,23 +66,7 @@ Windows:
 
 ```bash
 .venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Instala dependencias:
-
-```bash
 pip install -r requirements.txt
-```
-
-Inicia la aplicación:
-
-```bash
 uvicorn app:app --reload
 ```
 
@@ -91,75 +76,58 @@ Abre:
 http://127.0.0.1:8000
 ```
 
-## Primera prueba recomendada
+## Primera prueba
 
-Empieza con **4–8 cuadras**, no con un barrio completo.
+Empieza con **4–8 cuadras**.
 
-1. Haz clic en 4 o más esquinas del área.
+1. Haz clic en las esquinas del área.
 2. Pulsa **Cerrar polígono**.
-3. Usa inicialmente:
-   - separación de barrido: `150 m`
-   - radio Places: `120 m`
-4. Pulsa **Analizar zona**.
-5. Revisa los marcadores y descarga el CSV.
+3. Pulsa **Analizar zona**.
+4. Revisa los comercios encontrados.
+5. Si aparecen más de 100, reduce el perímetro.
+6. Descarga el CSV de Place IDs.
 
-Una consulta Nearby Search devuelve como máximo 20 lugares por punto. Para un área comercial muy densa, reduce la separación/radio para aumentar cobertura, vigilando el costo de API.
+Places Aggregate API admite polígonos personalizados. Para `INSIGHT_PLACES`, Google devuelve Place IDs cuando el resultado es de 100 lugares o menos.
 
-## CSV generado
+## Fase visual
+
+La tabla final que buscamos será:
 
 ```text
-place_id
-nombre
-direccion
-latitud
-longitud
-tipo_principal
-tipos
-estado
-website
-google_maps_url
+id
+latitud_propia
+longitud_propia
+direccion_fuente_abierta
 fachada_comercial
 aviso_comercial
 vitrina
 nombre_ocr
+place_id_google
+website_en_google_en_vivo
 confianza_vision
 ```
 
-El archivo se guarda en `data/output/negocios_YYYYMMDD_HHMMSS.csv`.
+La detección visual debe ejecutarse sobre imágenes que tengamos derecho a analizar, por ejemplo:
 
-## Fase 2: visión artificial
+- fotografías propias;
+- recorrido capturado con cámara/vehículo;
+- una fuente abierta/licenciada para análisis automatizado.
 
-El repositorio conserva scripts experimentales de YOLO para imágenes que tengamos derecho a analizar. La siguiente integración agregará:
-
-```text
-imagen autorizada
-   ↓
-detector/segmentador
-   ↓
-fachada comercial? → aviso? → vitrina?
-   ↓
-OCR del aviso
-   ↓
-comparación nombre OCR vs Google Places
-   ↓
-tabla consolidada
-```
-
-### Etiquetas objetivo
+### Clases iniciales
 
 - `fachada_comercial`
 - `aviso_comercial`
 - `vitrina`
 
-Después podremos calcular una variable `oportunidad_web`, priorizando candidatos sin `websiteUri` y con evidencia visual de actividad comercial.
-
-## Pruebas locales
+## Pruebas
 
 ```bash
 pytest -q
 ```
 
-## Documentación oficial usada
+## Referencias oficiales
 
-- Google Places API (New) — Nearby Search: https://developers.google.com/maps/documentation/places/web-service/nearby-search
-- Google Maps JavaScript API: https://developers.google.com/maps/documentation/javascript
+- Places Aggregate API: https://developers.google.com/maps/documentation/places-aggregate
+- Custom polygons: https://developers.google.com/maps/documentation/places-aggregate/request-parameters
+- Places API policies: https://developers.google.com/maps/documentation/places/web-service/policies
+- Google Maps Platform terms: https://cloud.google.com/terms/maps-platform
