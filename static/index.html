@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Piloto de fachadas comerciales</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Piloto de fachadas comerciales | Predictionia</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <header>
     <div>
       <h1>Piloto de fachadas comerciales</h1>
-      <p>Selecciona un perímetro, consulta comercios en Google Maps y prepara la fase de visión artificial.</p>
+      <p>Selecciona un perímetro, estima comercios y ejecuta el análisis con el nivel de costo que necesites.</p>
     </div>
   </header>
 
@@ -18,32 +18,86 @@
     <section class="panel controls">
       <h2>1. Selecciona el perímetro</h2>
       <p>Haz clic sobre el mapa para marcar los vértices. Mínimo 3 puntos.</p>
+
       <div class="buttons">
-        <button id="closePolygon">Cerrar polígono</button>
-        <button id="undoPoint" class="secondary">Deshacer punto</button>
-        <button id="clearMap" class="secondary">Limpiar</button>
+        <button id="closePolygon" type="button">Cerrar polígono</button>
+        <button id="undoPoint" type="button" class="secondary">Deshacer punto</button>
+        <button id="clearMap" type="button" class="secondary">Limpiar</button>
       </div>
-      <button id="analyze" class="primary" disabled>2. Analizar zona</button>
+
+      <div class="mode-box">
+        <h3>2. Elige el modo de análisis</h3>
+
+        <label class="mode-option">
+          <input type="radio" name="analysisMode" value="count" />
+          <span>
+            <strong>Solo conteo</strong>
+            <small>Cuenta comercios. Es el modo más rápido y económico.</small>
+          </span>
+        </label>
+
+        <label class="mode-option">
+          <input type="radio" name="analysisMode" value="economic" checked />
+          <span>
+            <strong>Análisis económico</strong>
+            <small>Nombre, dirección, tipo y ubicación. No consulta website.</small>
+          </span>
+        </label>
+
+        <label class="mode-option">
+          <input type="radio" name="analysisMode" value="complete" />
+          <span>
+            <strong>Análisis completo</strong>
+            <small>Incluye website y usa campos de mayor costo.</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="buttons action-buttons">
+        <button id="estimate" type="button" disabled>3. Estimar zona</button>
+        <button id="analyze" type="button" class="primary" disabled>4. Ejecutar análisis</button>
+      </div>
+
+      <div id="estimateCard" class="estimate-card hidden">
+        <div><span>Comercios estimados</span><strong id="estimateCount">—</strong></div>
+        <div><span>Modo</span><strong id="estimateMode">—</strong></div>
+        <div><span>Consultas de detalle</span><strong id="estimateDetails">—</strong></div>
+        <div><span>Nivel de costo</span><strong id="estimateCost">—</strong></div>
+        <p id="estimateNote"></p>
+      </div>
+
       <p id="status" class="status">Esperando polígono…</p>
+
       <p class="note">
-        Para mantener el proyecto dentro de las políticas de Google, la aplicación muestra nombre y dirección en vivo,
-        pero el archivo persistente guarda solamente los Place IDs.
+        La aplicación muestra información de Google Places en vivo. El archivo persistente guarda únicamente Place IDs.
       </p>
+
+      <div class="owner-card">
+        <p class="owner-label">Desarrollado y propiedad de</p>
+        <img
+          src="/static/img/predictionia-logo.png"
+          alt="Logo de Predictionia S.A.S."
+          class="owner-logo"
+        />
+        <p class="owner-name">Predictionia S.A.S.</p>
+      </div>
     </section>
 
     <section class="map-wrap">
-      <div id="map"></div>
+      <div id="map" aria-label="Mapa para seleccionar el perímetro"></div>
     </section>
 
     <section class="panel results">
       <div class="results-head">
         <div>
-          <h2>3. Comercios encontrados</h2>
+          <h2>5. Comercios encontrados</h2>
           <p id="summary">Aún no hay resultados.</p>
         </div>
         <a id="downloadCsv" class="button-link hidden" href="#">Descargar Place IDs</a>
       </div>
+
       <p id="warning" class="warning hidden"></p>
+
       <div class="table-wrap">
         <table>
           <thead>
