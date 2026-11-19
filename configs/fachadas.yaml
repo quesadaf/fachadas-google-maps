@@ -1,0 +1,8 @@
+path: data/dataset
+train: images/train
+val: images/val
+
+names:
+  0: fachada_comercial
+  1: aviso_comercial
+  2: vitrina
