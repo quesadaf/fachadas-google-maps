@@ -3,7 +3,6 @@ let polygonPath = [];
 let polygonShape = null;
 let vertexMarkers = [];
 let resultMarkers = [];
-let gridMarkers = [];
 let polygonClosed = false;
 
 async function bootstrap() {
@@ -35,18 +34,20 @@ window.initMap = function initMap() {
     if (polygonClosed) return;
     const p = { lat: event.latLng.lat(), lng: event.latLng.lng() };
     polygonPath.push(p);
+
     const marker = new google.maps.Marker({
       position: p,
       map,
       label: String(polygonPath.length),
     });
     vertexMarkers.push(marker);
-    renderDraftPolygon();
+
+    renderPolygon();
     updateStatus();
   });
 };
 
-function renderDraftPolygon() {
+function renderPolygon() {
   if (polygonShape) polygonShape.setMap(null);
   if (polygonPath.length < 2) return;
 
@@ -64,6 +65,7 @@ function updateStatus(message) {
   el.textContent =
     message ||
     `${polygonPath.length} vértices seleccionados${polygonClosed ? ' · polígono cerrado' : ''}`;
+
   document.getElementById('analyze').disabled = !polygonClosed;
 }
 
@@ -71,8 +73,9 @@ document.getElementById('closePolygon').addEventListener('click', () => {
   if (polygonPath.length < 3) {
     return updateStatus('Necesitas mínimo 3 puntos.');
   }
+
   polygonClosed = true;
-  renderDraftPolygon();
+  renderPolygon();
   updateStatus();
 });
 
@@ -80,10 +83,12 @@ document.getElementById('undoPoint').addEventListener('click', () => {
   if (polygonClosed) {
     return updateStatus('Primero limpia el polígono para volver a editarlo.');
   }
+
   polygonPath.pop();
   const marker = vertexMarkers.pop();
   if (marker) marker.setMap(null);
-  renderDraftPolygon();
+
+  renderPolygon();
   updateStatus();
 });
 
@@ -92,38 +97,33 @@ document.getElementById('clearMap').addEventListener('click', clearAll);
 function clearAll() {
   polygonClosed = false;
   polygonPath = [];
+
   if (polygonShape) polygonShape.setMap(null);
   polygonShape = null;
 
-  [...vertexMarkers, ...resultMarkers, ...gridMarkers].forEach(m => m.setMap(null));
+  [...vertexMarkers, ...resultMarkers].forEach(marker => marker.setMap(null));
   vertexMarkers = [];
   resultMarkers = [];
-  gridMarkers = [];
 
   document.getElementById('resultsBody').innerHTML = '';
   document.getElementById('summary').textContent = 'Aún no hay resultados.';
+  document.getElementById('warning').classList.add('hidden');
   document.getElementById('downloadCsv').classList.add('hidden');
+
   updateStatus('Esperando polígono…');
 }
 
 document.getElementById('analyze').addEventListener('click', async () => {
   if (!polygonClosed) return;
 
-  updateStatus('Consultando Google Places…');
+  updateStatus('Consultando comercios dentro del perímetro…');
   document.getElementById('analyze').disabled = true;
-
-  const payload = {
-    polygon: polygonPath,
-    grid_spacing_m: Number(document.getElementById('gridSpacing').value),
-    search_radius_m: Number(document.getElementById('searchRadius').value),
-    max_grid_points: 120,
-  };
 
   try {
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ polygon: polygonPath }),
     });
 
     const data = await response.json();
@@ -132,7 +132,7 @@ document.getElementById('analyze').addEventListener('click', async () => {
     }
 
     renderResults(data);
-    updateStatus(`Listo: ${data.count} negocios candidatos.`);
+    updateStatus(`Listo: ${data.count} comercios encontrados.`);
   } catch (err) {
     updateStatus(`Error: ${err.message}`);
   } finally {
@@ -141,40 +141,33 @@ document.getElementById('analyze').addEventListener('click', async () => {
 });
 
 function renderResults(data) {
-  [...resultMarkers, ...gridMarkers].forEach(m => m.setMap(null));
+  resultMarkers.forEach(marker => marker.setMap(null));
   resultMarkers = [];
-  gridMarkers = [];
 
-  data.grid_points.forEach(p => {
-    gridMarkers.push(
-      new google.maps.Marker({
-        position: p,
-        map,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 3,
-          fillOpacity: 0.5,
-          strokeWeight: 1,
-        },
-        title: 'Punto de barrido',
-      })
-    );
-  });
+  const warning = document.getElementById('warning');
+  if (data.warning) {
+    warning.textContent = data.warning;
+    warning.classList.remove('hidden');
+  } else {
+    warning.classList.add('hidden');
+  }
 
   const tbody = document.getElementById('resultsBody');
   tbody.innerHTML = '';
 
   data.places.forEach((place, idx) => {
-    const marker = new google.maps.Marker({
-      position: {
-        lat: Number(place.latitud),
-        lng: Number(place.longitud),
-      },
-      map,
-      label: String(idx + 1),
-      title: place.nombre,
-    });
-    resultMarkers.push(marker);
+    if (place.latitud != null && place.longitud != null) {
+      const marker = new google.maps.Marker({
+        position: {
+          lat: Number(place.latitud),
+          lng: Number(place.longitud),
+        },
+        map,
+        label: String(idx + 1),
+        title: place.nombre,
+      });
+      resultMarkers.push(marker);
+    }
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -189,11 +182,15 @@ function renderResults(data) {
   });
 
   document.getElementById('summary').textContent =
-    `${data.count} candidatos · ${data.grid_points.length} puntos de barrido.`;
+    `${data.count} comercios en el perímetro · ${data.place_ids.length} Place IDs disponibles.`;
 
   const a = document.getElementById('downloadCsv');
-  a.href = `/api/download/${encodeURIComponent(data.csv_file)}`;
-  a.classList.remove('hidden');
+  if (data.id_file) {
+    a.href = `/api/download/${encodeURIComponent(data.id_file)}`;
+    a.classList.remove('hidden');
+  } else {
+    a.classList.add('hidden');
+  }
 }
 
 function escapeHtml(value) {
