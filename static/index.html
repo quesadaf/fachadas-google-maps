@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Piloto de fachadas comerciales</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Piloto de fachadas comerciales</h1>
+      <p>Dibuja un perímetro, consulta negocios y prepara el barrido de visión artificial.</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel controls">
+      <h2>1. Selecciona el perímetro</h2>
+      <p>Haz clic sobre el mapa para marcar los vértices. Mínimo 3 puntos.</p>
+      <div class="buttons">
+        <button id="closePolygon">Cerrar polígono</button>
+        <button id="undoPoint" class="secondary">Deshacer punto</button>
+        <button id="clearMap" class="secondary">Limpiar</button>
+      </div>
+      <div class="settings">
+        <label>Separación de barrido (m)
+          <input id="gridSpacing" type="number" value="150" min="50" max="500" />
+        </label>
+        <label>Radio Places (m)
+          <input id="searchRadius" type="number" value="120" min="50" max="500" />
+        </label>
+      </div>
+      <button id="analyze" class="primary" disabled>2. Analizar zona</button>
+      <p id="status" class="status">Esperando polígono…</p>
+    </section>
+
+    <section class="map-wrap">
+      <div id="map"></div>
+    </section>
+
+    <section class="panel results">
+      <div class="results-head">
+        <div>
+          <h2>3. Negocios candidatos</h2>
+          <p id="summary">Aún no hay resultados.</p>
+        </div>
+        <a id="downloadCsv" class="button-link hidden" href="#">Descargar CSV</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Dirección</th>
+              <th>Tipo</th>
+              <th>Web</th>
+              <th>Maps</th>
+              <th>Visión</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
